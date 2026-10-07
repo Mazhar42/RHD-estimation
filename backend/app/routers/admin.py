@@ -2,7 +2,8 @@ import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -25,7 +26,7 @@ def _is_superadmin_token(
         payload = jwt.decode(
             credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
         )
-    except JWTError:
+    except PyJWTError:
         return False
     username = payload.get("sub")
     if not username:

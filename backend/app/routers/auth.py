@@ -2,7 +2,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import JWTError
+from jwt import PyJWTError
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from .. import crud, schemas, models
@@ -249,7 +249,7 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
 
     try:
         payload = decode_refresh_token(raw_refresh_token)
-    except (JWTError, ValueError):
+    except (PyJWTError, ValueError):
         raise invalid
 
     db_user = crud.get_user_by_id(db, payload.get("user_id"))

@@ -13,6 +13,10 @@
 #
 # After the copy the new backend starts and migrates the data to the current
 # schema. If anything fails, the old backend is started again.
+#
+# The single-quoted "$POSTGRES_USER"/"$POSTGRES_DB" are meant to expand
+# inside the database containers, not here.
+# shellcheck disable=SC2016
 set -Eeuo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 

@@ -66,10 +66,7 @@ jobs:
       - name: Bandit
         run: bandit -q -r backend/app/
       - name: Dependency vulnerabilities
-        # 64459 (CVE-2024-23342, ecdsa timing attack): ecdsa comes in via
-        # python-jose, but the app only uses HS256, never the ECDSA path,
-        # and no fixed ecdsa release exists. Revisit if ES* JWTs are added.
-        run: safety check -r backend/requirements.txt --ignore 64459
+        run: safety check -r backend/requirements.txt
 
   backend-tests:
     name: Backend tests (SQLite + PostgreSQL)

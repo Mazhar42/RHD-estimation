@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 import logging
 from typing import Optional
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -58,7 +59,7 @@ def create_refresh_token(data: dict) -> str:
 
 
 def decode_refresh_token(token: str) -> dict:
-    """Decode+validate a refresh token. Raises JWTError (bad/expired
+    """Decode+validate a refresh token. Raises PyJWTError (bad/expired
     signature) or ValueError (right shape, wrong type -- e.g. someone
     passed an access token here) on failure."""
     payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -100,7 +101,7 @@ async def get_current_user(
         if username is None or user_id is None:
             logger.warning("Token payload missing sub or user_id")
             raise credentials_exception
-    except JWTError as e:
+    except PyJWTError as e:
         logger.warning(f"JWT decode error: {str(e)}")
         raise credentials_exception
 
