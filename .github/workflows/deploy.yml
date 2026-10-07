@@ -130,16 +130,25 @@ jobs:
           KEY: ${{ secrets.VPS_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
+          # Secrets pasted from Windows can carry \r and stray spaces, which
+          # make ssh reject an otherwise correct key or host entry.
+          HOST=$(printf '%s' "$HOST" | tr -d '[:space:]')
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KEY" | tr -d '\r' > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
           if [ -n "$KNOWN_HOSTS" ]; then
-            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+            printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
           else
             echo "::warning::VPS_KNOWN_HOSTS is not set; trusting the server's key on first use. Set it to pin the key."
             ssh-keyscan -p "$PORT" "$HOST" > ~/.ssh/known_hosts
           fi
           printf 'Host vps\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' \
             "$HOST" "$PORT" "$USER" > ~/.ssh/config
+          if ! ssh -o BatchMode=yes -o ConnectTimeout=20 vps true; then
+            echo "::error::Could not log in to $USER@$HOST over SSH (reason on the line above)."
+            echo "'Host key verification failed': VPS_KNOWN_HOSTS must be the output of 'ssh-keyscan $HOST', for exactly the address in VPS_HOST."
+            echo "'Permission denied (publickey)': VPS_SSH_KEY must be the whole private key file, including the BEGIN/END lines."
+            exit 1
+          fi
 
       - name: Upload deploy bundle
         if: steps.guard.outputs.skip != 'true'
