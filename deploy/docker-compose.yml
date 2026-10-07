@@ -1,0 +1,73 @@
+# Production stack. Lives in /opt/rhd-ces on the VPS; CI copies this file
+# there on every deploy and sets the image tags in /opt/rhd-ces/.env (see
+# deploy.sh and DEPLOYMENT.md).
+#
+#   Internet --443--> edge nginx (host) --> 127.0.0.1:HTTP_PORT
+#                                             |
+#                                          frontend (nginx) --/api/*--> backend --> db
+#
+# The VPS is shared with other apps, so TLS, hostnames and ports 80/443
+# belong to the host's nginx (site file: deploy/nginx/). This stack only
+# publishes one loopback port; everything else is on its private network.
+name: rhd-ces
+
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:?set FRONTEND_IMAGE in .env}:${FRONTEND_TAG:-latest}
+    restart: unless-stopped
+    # Loopback only: binding 0.0.0.0 would make the app reachable at
+    # http://<vps-ip>:port, bypassing TLS and the edge entirely.
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8003}:8080"
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  backend:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in .env}:${BACKEND_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      CORS_ORIGINS: ${PUBLIC_URL}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_SAMESITE: lax
+      COOKIE_DOMAIN: ""
+      CRON_SECRET: ${CRON_SECRET:-}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      # Requests arrive via two proxies (edge nginx -> frontend nginx), both
+      # on private addresses. Trusting exactly those ranges makes uvicorn
+      # take the first untrusted X-Forwarded-For entry, i.e. the real
+      # client -- required for per-client login rate limiting. Do not use
+      # "*": uvicorn would then take the leftmost entry, which the client
+      # can forge.
+      FORWARDED_ALLOW_IPS: "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    logging: *logging
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?set DB_USER in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:?set DB_NAME in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    shm_size: 256mb
+    logging: *logging
+
+volumes:
+  pgdata:

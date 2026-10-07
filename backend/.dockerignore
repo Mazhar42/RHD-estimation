@@ -1,0 +1,21 @@
+# Keep the build context to what the image needs -- and never local secrets
+# or databases (a plain `docker build .` would otherwise bake in
+# .env.production, venv/ and the SQLite files).
+.git
+.github
+.pytest_cache
+**/__pycache__
+*.pyc
+venv
+.venv
+.env
+.env.*
+*.db
+*.db.*
+*.sqlite*
+tests
+deploy
+*.md
+test-results
+nginx.conf*
+docker-compose*.yml

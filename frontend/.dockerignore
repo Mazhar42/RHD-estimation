@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+dist
+test-results
+playwright-report
+blob-report
+e2e
+.env
+.env.*
+!.env.example
+*.log

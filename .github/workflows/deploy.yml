@@ -1,0 +1,173 @@
+name: Deploy
+
+# Push (or merged pull request) to main -> run CI -> build and publish the
+# images that changed -> deploy them to the VPS. See DEPLOYMENT.md for the
+# one-time server setup and the secrets.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One production deploy at a time (deploy.sh on the server also locks).
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.diff.outputs.backend }}
+      frontend: ${{ steps.diff.outputs.frontend }}
+      bundle: ${{ steps.diff.outputs.bundle }}
+      images: ${{ steps.diff.outputs.images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # A manual run, the repo's first push, or a force-push (old commit
+          # gone) deploys everything; otherwise only what this push touched.
+          if [ "$EVENT" != push ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            files=$(printf 'backend/\nfrontend/\ndeploy/\n')
+          else
+            files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          fi
+          images=()
+          for part in backend frontend; do
+            if grep -q "^$part/" <<<"$files"; then v=true; images+=("\"$part\""); else v=false; fi
+            echo "$part=$v" | tee -a "$GITHUB_OUTPUT"
+          done
+          echo "images=[$(IFS=,; echo "${images[*]}")]" | tee -a "$GITHUB_OUTPUT"
+          if grep -q "^deploy/" <<<"$files"; then v=true; else v=false; fi
+          echo "bundle=$v" | tee -a "$GITHUB_OUTPUT"
+
+  image:
+    name: Build ${{ matrix.service }} image
+    needs: [ci, changes]
+    if: needs.changes.outputs.images != '[]'
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.images) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rhd-estimation-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}
+          push: true
+          build-args: ${{ matrix.service == 'frontend' && format('VITE_API_URL={0}', vars.VITE_API_URL || '/api') || '' }}
+          tags: |
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+            ${{ steps.name.outputs.image }}:latest
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    name: Deploy to VPS
+    needs: [ci, changes, image]
+    # Runs when CI passed and no image build failed (a skipped build just
+    # means that part didn't change).
+    if: >-
+      !cancelled() && needs.ci.result == 'success' && needs.image.result != 'failure'
+      && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.bundle == 'true')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      APP_DIR: ${{ vars.VPS_APP_DIR || '/opt/rhd-ces' }}
+      BACKEND: ${{ needs.changes.outputs.backend }}
+      FRONTEND: ${{ needs.changes.outputs.frontend }}
+      BUNDLE: ${{ needs.changes.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy
+
+      - name: Check deploy settings
+        id: guard
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$KEY" ]; then
+            echo "::warning::VPS_HOST / VPS_SSH_KEY are not set, so the images were published but not deployed. See DEPLOYMENT.md."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up SSH
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          PORT: ${{ secrets.VPS_PORT || '22' }}
+          USER: ${{ secrets.VPS_USER || 'deploy' }}
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::VPS_KNOWN_HOSTS is not set; trusting the server's key on first use. Set it to pin the key."
+            ssh-keyscan -p "$PORT" "$HOST" > ~/.ssh/known_hosts
+          fi
+          printf 'Host vps\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' \
+            "$HOST" "$PORT" "$USER" > ~/.ssh/config
+
+      - name: Upload deploy bundle
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          ssh vps "test -d '$APP_DIR'" || { echo "::error::$APP_DIR does not exist on the server; run deploy/bootstrap-vps.sh first."; exit 1; }
+          scp deploy/docker-compose.yml deploy/deploy.sh deploy/backup.sh deploy/import-legacy-db.sh deploy/.env.example "vps:$APP_DIR/"
+          ssh vps "chmod +x '$APP_DIR'/*.sh && test -f '$APP_DIR/.env'" \
+            || { echo "::error::$APP_DIR/.env is missing on the server; create it from .env.example (DEPLOYMENT.md)."; exit 1; }
+
+      - name: Deploy
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | ssh vps "docker login ghcr.io -u '${{ github.actor }}' --password-stdin" >/dev/null
+          status=0
+          {
+            if [ "$BACKEND" = true ]; then ssh vps "'$APP_DIR/deploy.sh' backend '${{ github.sha }}'"; fi &&
+            if [ "$FRONTEND" = true ]; then ssh vps "'$APP_DIR/deploy.sh' frontend '${{ github.sha }}'"; fi &&
+            # A changed docker-compose.yml applies to every service.
+            if [ "$BUNDLE" = true ]; then ssh vps "'$APP_DIR/deploy.sh' up"; fi
+          } || status=$?
+          # This token expires with the job; leaving it would break later pulls.
+          ssh vps "docker logout ghcr.io" >/dev/null || true
+          exit $status
+
+      - name: Smoke test
+        if: steps.guard.outputs.skip != 'true' && vars.PUBLIC_URL != ''
+        run: |
+          curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "${{ vars.PUBLIC_URL }}/api/health"
+          curl -fsS "${{ vars.PUBLIC_URL }}/" | grep -q '<div id="root">'

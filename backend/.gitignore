@@ -1,0 +1,28 @@
+# Virtual Environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local database file (and any backup copy of it -- these carry real
+# password hashes and user data, never commit them)
+*.db
+*.db-journal
+*.db.bak*
+
+# IDE / Editor specific
+.vscode/
+.idea/
+
+# Environment variables -- ignore every real .env file, but keep the
+# checked-in placeholder templates so onboarding still works.
+.env
+.env.*
+!.env.example
+!.env.prod.template
+# Local-development defaults only (SQLite, plain http); no secrets.
+!.env.development

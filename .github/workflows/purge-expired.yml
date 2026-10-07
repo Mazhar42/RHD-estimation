@@ -1,0 +1,33 @@
+name: Purge Expired Works (manual)
+
+# On the VPS the hourly purge runs from cron (deploy/bootstrap-vps.sh).
+# This is a manual fallback for deployments without shell access; it calls
+# POST /admin/purge-expired, which requires CRON_SECRET to be set on the
+# server and RHD_API_URL (https://estimation.rhdbridge.com/api) +
+# RHD_CRON_SECRET here.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report candidates without deleting anything"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    name: Purge expired works
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call purge-expired endpoint
+        run: |
+          curl -fsS -X POST "${API_URL}/admin/purge-expired" \
+            -H "X-Cron-Key: ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d "{\"dry_run\": ${DRY_RUN:-true}}"
+        env:
+          API_URL: ${{ secrets.RHD_API_URL }}
+          CRON_SECRET: ${{ secrets.RHD_CRON_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run }}

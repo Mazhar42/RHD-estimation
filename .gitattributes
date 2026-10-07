@@ -1,0 +1,8 @@
+# Scripts and files that run inside Linux containers / on the server must
+# keep LF line endings even when checked out on Windows.
+*.sh text eol=lf
+deploy/** text eol=lf
+.github/** text eol=lf
+**/Dockerfile text eol=lf
+**/nginx.conf text eol=lf
+docker-compose*.yml text eol=lf

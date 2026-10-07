@@ -1,0 +1,21 @@
+# Per-project rules live in backend/.gitignore and frontend/.gitignore.
+
+# SSH keys -- the CI deploy key belongs only in GitHub's secrets.
+rhd-ces-deploy
+rhd-ces-deploy.pub
+id_rsa*
+id_ed25519*
+*.pem
+
+# Any real environment file anywhere (templates are allowed).
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.development
+
+# Local tooling
+.pytest_cache/
+.claude/settings.local.json
+.vscode/
+.idea/

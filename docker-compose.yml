@@ -1,0 +1,47 @@
+# Runs the whole app locally from source, wired the way production is
+# (frontend nginx serves the app and proxies /api to the backend):
+#
+#   docker compose up --build        then open http://localhost:8080
+#   docker compose exec backend python -m app.cli create-admin
+#
+# For day-to-day development, the faster loop is the Vite dev server plus a
+# local uvicorn (backend/README.md, frontend/README.md).
+name: rhd-ces-local
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql://rhd:rhd@db:5432/rhd_ces
+      SECRET_KEY: local-development-only-not-a-secret
+      # Plain http:// locally; browsers drop Secure cookies there.
+      COOKIE_SECURE: "false"
+      FORWARDED_ALLOW_IPS: "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rhd
+      POSTGRES_PASSWORD: rhd
+      POSTGRES_DB: rhd_ces
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rhd -d rhd_ces"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
