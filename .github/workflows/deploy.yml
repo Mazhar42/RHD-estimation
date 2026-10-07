@@ -143,9 +143,11 @@ jobs:
           # Pin the server by its keys alone, under the alias "vps" (see
           # HostKeyAlias below): the host column of each pasted line is
           # ignored, so it needn't match VPS_HOST character for character.
-          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' | awk '
-            !/^[[:space:]]*#/ { for (i = 1; i < NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print "vps", $i, $(i + 1); break } }
-          ' > ~/.ssh/known_hosts
+          # Text copied from a web page can carry non-breaking spaces (UTF-8
+          # C2 A0) instead of spaces, which would hide every key from ssh.
+          { printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' | sed 's/\xc2\xa0/ /g' \
+              | grep -oE '(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com)[[:space:]]+[A-Za-z0-9+/]+=*' \
+              | awk '{print "vps", $1, $2}' || true; } > ~/.ssh/known_hosts
           printf 'Host vps\n  HostName %s\n  Port %s\n  User %s\n  HostKeyAlias vps\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' \
             "$HOST" "$PORT" "$USER" > ~/.ssh/config
           if ! ssh -o BatchMode=yes -o ConnectTimeout=20 vps true; then
@@ -154,7 +156,17 @@ jobs:
             if [ -s ~/.ssh/known_hosts ]; then
               ssh-keygen -lf ~/.ssh/known_hosts 2>&1 | awk '{print "  " $2, $NF}' || true
             else
-              echo "  (none: the secret has no line containing an ssh-.../ecdsa-... key)"
+              # Describe the value without printing it -- it might be a
+              # private key pasted into the wrong secret.
+              echo "  (none: no 'ssh-ed25519 AAAA...'-style key found in ${#KNOWN_HOSTS} characters, $(printf '%s\n' "$KNOWN_HOSTS" | wc -l) line(s))"
+              case "$KNOWN_HOSTS" in *"PRIVATE KEY"*) echo "  -> It looks like a PRIVATE key. That belongs in VPS_SSH_KEY, not here." ;; esac
+              case "$KNOWN_HOSTS" in *SHA256:*) echo "  -> It looks like fingerprints (SHA256:...). Paste the full key lines instead." ;; esac
+              if ! printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' | grep -qvE '^[[:space:]]*(#|$)'; then
+                echo "  -> It only has '# ...' comment lines; the key lines (IP ssh-ed25519 AAAA...) are missing."
+              fi
+              if printf '%s' "$KNOWN_HOSTS" | LC_ALL=C grep -q '[^[:print:][:space:]]'; then
+                echo "  -> It contains invisible/non-ASCII characters, typical of text copied from a web page."
+              fi
             fi
             echo "Host keys the server at VPS_HOST presents:"
             ssh-keyscan -T 10 -p "$PORT" "$HOST" 2>/dev/null | ssh-keygen -lf - 2>&1 | awk '{print "  " $2, $NF}' || true
