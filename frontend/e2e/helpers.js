@@ -18,6 +18,9 @@ export async function createWork(page, projectName = `E2E Test Project ${Date.no
   await page.getByLabel("Project name").fill(projectName);
   await expect(page.getByLabel("Work ID")).toHaveValue(/^RHD-\d{4}-E2E-TEST-PROJECT/);
   await page.getByRole("button", { name: "Next" }).click();
+  // Explicit, not "whichever region the API lists first": addSeededItem
+  // relies on the Dhaka Zone rates. (Waits for the regions to load.)
+  await page.getByLabel("Region (sets the rates used)").selectOption("Dhaka Zone");
   await page.getByRole("button", { name: "Create Work" }).click();
   await expect(page).toHaveURL(/\/estimations\/\d+/, { timeout: 10000 });
 }

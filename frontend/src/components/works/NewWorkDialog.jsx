@@ -50,6 +50,9 @@ export default function NewWorkDialog({ open, onClose, onCreate }) {
   const [form, setForm] = useState(blankForm);
   const [organizations, setOrganizations] = useState([]);
   const [regions, setRegions] = useState([]);
+  // Until the organization's regions arrive, form.region is still "" --
+  // creating the work then would leave it without a rate region.
+  const [regionsLoaded, setRegionsLoaded] = useState(false);
   const [workTypeOptions, setWorkTypeOptions] = useState([]);
   const [idStatus, setIdStatus] = useState(null); // { available, suggestion }
   const [error, setError] = useState("");
@@ -62,9 +65,17 @@ export default function NewWorkDialog({ open, onClose, onCreate }) {
     setForm(blankForm());
     setError("");
     setIdStatus(null);
+    setRegionsLoaded(false);
     listOrganizations()
-      .then((items) => setOrganizations(items || []))
-      .catch(() => setOrganizations([]));
+      .then((items) => {
+        setOrganizations(items || []);
+        // No organizations means no regions will ever load.
+        if (!items?.length) setRegionsLoaded(true);
+      })
+      .catch(() => {
+        setOrganizations([]);
+        setRegionsLoaded(true);
+      });
     listWorkTypes()
       .then((items) => setWorkTypeOptions(items || []))
       .catch(() => setWorkTypeOptions([{ code: "road", label: "Road" }]));
@@ -73,16 +84,30 @@ export default function NewWorkDialog({ open, onClose, onCreate }) {
   useEffect(() => {
     if (!open) return;
     const org = organizations.find((o) => o.name === form.organization);
-    if (!org) return;
+    if (!org) {
+      if (organizations.length) setRegionsLoaded(true);
+      return undefined;
+    }
+    let cancelled = false;
+    setRegionsLoaded(false);
     listRegions(org.org_id)
       .then((items) => {
+        if (cancelled) return;
         const names = (items || []).map((r) => r.name).filter(Boolean);
         setRegions(names);
         setForm((f) =>
           names.includes(f.region) ? f : { ...f, region: names[0] || "" },
         );
       })
-      .catch(() => setRegions([]));
+      .catch(() => {
+        if (!cancelled) setRegions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRegionsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, form.organization, organizations]);
 
   // Keep the Work ID following the project name until the user edits it.
@@ -214,10 +239,16 @@ export default function NewWorkDialog({ open, onClose, onCreate }) {
         )}
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || (step === 2 && !regionsLoaded)}
           className="rounded bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
         >
-          {step === 1 ? "Next" : isSubmitting ? "Creating…" : "Create Work"}
+          {step === 1
+            ? "Next"
+            : isSubmitting
+              ? "Creating…"
+              : regionsLoaded
+                ? "Create Work"
+                : "Loading regions…"}
         </button>
       </div>
     </div>
