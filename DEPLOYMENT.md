@@ -95,7 +95,7 @@ Without `DB_PASSWORD` the backups can't be restored into a fresh server.
 | --- | --- |
 | `VPS_HOST` | `62.171.150.194` |
 | `VPS_SSH_KEY` | full contents of `~/.ssh/rhd-ces-deploy` (the private key, including the `BEGIN`/`END` lines) |
-| `VPS_KNOWN_HOSTS` | output of `ssh-keyscan 62.171.150.194` |
+| `VPS_KNOWN_HOSTS` | output of `ssh-keyscan 62.171.150.194`, run in **Git Bash**. Windows' own `ssh-keyscan` is too old for this server and prints no keys. From PowerShell: `& 'C:\Program Files\Git\usr\bin\ssh-keyscan.exe' 62.171.150.194 2>$null \| Set-Clipboard`, then paste. |
 
 and under *Environment variables*:
 
