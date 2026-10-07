@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { updateEstimationLine } from "../../../api/estimations";
 import {
   getInitialDimensionValue,
@@ -55,11 +55,15 @@ export default function CompleteSubItemsModal({
   const allowed = allowedInputsForUnit(unit, unitMode);
   const dualMode = supportsDualMode(unit);
 
-  useEffect(() => {
-    setForm(buildFormFromLine(savedLines[index]));
+  // Moves to another sub-item and loads its values in the same update, so
+  // there is never a render where the new part shows the previous part's
+  // numbers (anything typed into them would then be silently replaced).
+  const goTo = (nextIndex, lines = savedLines) => {
+    setIndex(nextIndex);
+    setForm(buildFormFromLine(lines[nextIndex]));
     setUnitMode("default");
     setError("");
-  }, [index]);
+  };
 
   const elementById = useMemo(() => {
     const map = new Map();
@@ -118,18 +122,19 @@ export default function CompleteSubItemsModal({
     setIsSubmitting(true);
     setError("");
     try {
+      let lines = savedLines;
       if (payload) {
         const updated = await updateEstimationLine(
           currentLine.line_id,
           payload,
         );
-        const nextSaved = savedLines.map((l, i) => (i === index ? updated : l));
-        setSavedLines(nextSaved);
+        lines = savedLines.map((l, i) => (i === index ? updated : l));
+        setSavedLines(lines);
       }
       if (exitAfter || index === total - 1) {
         onFinish();
       } else {
-        setIndex((i) => i + 1);
+        goTo(index + 1, lines);
       }
     } catch (err) {
       setError(
@@ -226,102 +231,106 @@ export default function CompleteSubItemsModal({
         )}
 
         <form onSubmit={handleNext} className="mt-4 space-y-3">
-          <input
-            name="sub_description"
-            value={form.sub_description}
-            onChange={handleChange}
-            placeholder="Sub description (optional)"
-            className={fieldClass}
-          />
+          {/* Locked while a save is in flight: typing then would go into the
+              part being saved and be lost when the next part loads. */}
+          <fieldset disabled={isSubmitting} className="min-w-0 space-y-3">
+            <input
+              name="sub_description"
+              value={form.sub_description}
+              onChange={handleChange}
+              placeholder="Sub description (optional)"
+              className={fieldClass}
+            />
 
-          {dualMode && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-gray-600">Calculation:</span>
-              <div className="inline-flex rounded overflow-hidden border border-gray-300">
-                <button
-                  type="button"
-                  className={`px-2 py-1 ${unitMode === "default" ? "bg-teal-600 text-white" : "bg-white text-gray-700"}`}
-                  onClick={() => setUnitMode("default")}
-                >
-                  Dimensions
-                </button>
-                <button
-                  type="button"
-                  className={`px-2 py-1 ${unitMode === "quantity" ? "bg-teal-600 text-white" : "bg-white text-gray-700"}`}
-                  onClick={() => setUnitMode("quantity")}
-                >
-                  Quantity
-                </button>
+            {dualMode && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-600">Calculation:</span>
+                <div className="inline-flex rounded overflow-hidden border border-gray-300">
+                  <button
+                    type="button"
+                    className={`px-2 py-1 ${unitMode === "default" ? "bg-teal-600 text-white" : "bg-white text-gray-700"}`}
+                    onClick={() => setUnitMode("default")}
+                  >
+                    Dimensions
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-2 py-1 ${unitMode === "quantity" ? "bg-teal-600 text-white" : "bg-white text-gray-700"}`}
+                    onClick={() => setUnitMode("quantity")}
+                  >
+                    Quantity
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {allowed.includes("no_of_units") && (
-            <label className="block space-y-1 text-sm text-gray-700">
-              <span className="font-medium">No. of units</span>
-              <InputWithUnit
-                unit={unitAdornment(unit, "no_of_units")}
-                name="no_of_units"
-                value={form.no_of_units}
-                onChange={handleChange}
-                className={fieldClass}
-              />
-            </label>
-          )}
-          {allowed.includes("quantity") && (
-            <label className="block space-y-1 text-sm text-gray-700">
-              <span className="font-medium">Quantity</span>
-              <InputWithUnit
-                unit={unitAdornment(unit, "quantity")}
-                name="quantity"
-                value={form.quantity}
-                onChange={handleChange}
-                className={fieldClass}
-              />
-            </label>
-          )}
-          {allowed.includes("length") && (
-            <label className="block space-y-1 text-sm text-gray-700">
-              <span className="font-medium">Length</span>
-              <InputWithUnit
-                unit={unitAdornment(unit, "length")}
-                name="length"
-                value={form.length}
-                onChange={handleChange}
-                className={fieldClass}
-              />
-            </label>
-          )}
-          {allowed.includes("width") && (
-            <label className="block space-y-1 text-sm text-gray-700">
-              <span className="font-medium">Width</span>
-              <InputWithUnit
-                unit={unitAdornment(unit, "width")}
-                name="width"
-                value={form.width}
-                onChange={handleChange}
-                className={fieldClass}
-              />
-            </label>
-          )}
-          {allowed.includes("thickness") && (
-            <label className="block space-y-1 text-sm text-gray-700">
-              <span className="font-medium">Thickness</span>
-              <InputWithUnit
-                unit={unitAdornment(unit, "thickness")}
-                name="thickness"
-                value={form.thickness}
-                onChange={handleChange}
-                className={fieldClass}
-              />
-            </label>
-          )}
+            {allowed.includes("no_of_units") && (
+              <label className="block space-y-1 text-sm text-gray-700">
+                <span className="font-medium">No. of units</span>
+                <InputWithUnit
+                  unit={unitAdornment(unit, "no_of_units")}
+                  name="no_of_units"
+                  value={form.no_of_units}
+                  onChange={handleChange}
+                  className={fieldClass}
+                />
+              </label>
+            )}
+            {allowed.includes("quantity") && (
+              <label className="block space-y-1 text-sm text-gray-700">
+                <span className="font-medium">Quantity</span>
+                <InputWithUnit
+                  unit={unitAdornment(unit, "quantity")}
+                  name="quantity"
+                  value={form.quantity}
+                  onChange={handleChange}
+                  className={fieldClass}
+                />
+              </label>
+            )}
+            {allowed.includes("length") && (
+              <label className="block space-y-1 text-sm text-gray-700">
+                <span className="font-medium">Length</span>
+                <InputWithUnit
+                  unit={unitAdornment(unit, "length")}
+                  name="length"
+                  value={form.length}
+                  onChange={handleChange}
+                  className={fieldClass}
+                />
+              </label>
+            )}
+            {allowed.includes("width") && (
+              <label className="block space-y-1 text-sm text-gray-700">
+                <span className="font-medium">Width</span>
+                <InputWithUnit
+                  unit={unitAdornment(unit, "width")}
+                  name="width"
+                  value={form.width}
+                  onChange={handleChange}
+                  className={fieldClass}
+                />
+              </label>
+            )}
+            {allowed.includes("thickness") && (
+              <label className="block space-y-1 text-sm text-gray-700">
+                <span className="font-medium">Thickness</span>
+                <InputWithUnit
+                  unit={unitAdornment(unit, "thickness")}
+                  name="thickness"
+                  value={form.thickness}
+                  onChange={handleChange}
+                  className={fieldClass}
+                />
+              </label>
+            )}
+          </fieldset>
 
           <div className="flex justify-between gap-2 pt-2 border-t border-gray-100 flex-wrap">
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                onClick={() => goTo(Math.max(0, index - 1))}
                 disabled={index === 0 || isSubmitting}
                 className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
               >

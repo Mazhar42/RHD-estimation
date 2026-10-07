@@ -38,6 +38,8 @@ test("golden path: create, add, split into parts, export, reload", async ({ page
   await page.getByLabel("Length").fill("2");
   await page.getByLabel("Width").fill("5");
   await page.getByRole("button", { name: "Save & Next" }).click();
+  // Part A's save must land before Part B's numbers go in.
+  await expect(page.getByText("2 of 2", { exact: true })).toBeVisible();
   await page.getByLabel("No. of units").fill("1");
   await page.getByLabel("Length").fill("1");
   await page.getByLabel("Width").fill("4");
