@@ -133,19 +133,32 @@ jobs:
           # Secrets pasted from Windows can carry \r and stray spaces, which
           # make ssh reject an otherwise correct key or host entry.
           HOST=$(printf '%s' "$HOST" | tr -d '[:space:]')
+          PORT=$(printf '%s' "$PORT" | tr -d '[:space:]')
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" | tr -d '\r' > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
-          if [ -n "$KNOWN_HOSTS" ]; then
-            printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
-          else
+          if [ -z "$KNOWN_HOSTS" ]; then
             echo "::warning::VPS_KNOWN_HOSTS is not set; trusting the server's key on first use. Set it to pin the key."
-            ssh-keyscan -p "$PORT" "$HOST" > ~/.ssh/known_hosts
+            KNOWN_HOSTS=$(ssh-keyscan -p "$PORT" "$HOST" 2>/dev/null)
           fi
-          printf 'Host vps\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' \
+          # Pin the server by its keys alone, under the alias "vps" (see
+          # HostKeyAlias below): the host column of each pasted line is
+          # ignored, so it needn't match VPS_HOST character for character.
+          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' | awk '
+            !/^[[:space:]]*#/ { for (i = 1; i < NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print "vps", $i, $(i + 1); break } }
+          ' > ~/.ssh/known_hosts
+          printf 'Host vps\n  HostName %s\n  Port %s\n  User %s\n  HostKeyAlias vps\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' \
             "$HOST" "$PORT" "$USER" > ~/.ssh/config
           if ! ssh -o BatchMode=yes -o ConnectTimeout=20 vps true; then
-            echo "::error::Could not log in to $USER@$HOST over SSH (reason on the line above)."
-            echo "'Host key verification failed': VPS_KNOWN_HOSTS must be the output of 'ssh-keyscan $HOST', for exactly the address in VPS_HOST."
+            echo "::error::Could not log in over SSH (reason on the line above)."
+            echo "Host keys read from VPS_KNOWN_HOSTS:"
+            if [ -s ~/.ssh/known_hosts ]; then
+              ssh-keygen -lf ~/.ssh/known_hosts 2>&1 | awk '{print "  " $2, $NF}' || true
+            else
+              echo "  (none: the secret has no line containing an ssh-.../ecdsa-... key)"
+            fi
+            echo "Host keys the server at VPS_HOST presents:"
+            ssh-keyscan -T 10 -p "$PORT" "$HOST" 2>/dev/null | ssh-keygen -lf - 2>&1 | awk '{print "  " $2, $NF}' || true
+            echo "'Host key verification failed': the two lists above must share a fingerprint; set VPS_KNOWN_HOSTS to the output of 'ssh-keyscan <server IP>'."
             echo "'Permission denied (publickey)': VPS_SSH_KEY must be the whole private key file, including the BEGIN/END lines."
             exit 1
           fi
