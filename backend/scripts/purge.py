@@ -1,7 +1,8 @@
 """Out-of-process runner for the 7-day work retention purge.
 
-Invoked by a Render Cron Job (or a scheduled GitHub Actions workflow as a
-fallback). Also exercised manually via ``python scripts/purge.py --dry-run``.
+Invoked hourly by cron on the VPS (deploy/bootstrap-vps.sh) inside the
+backend container. Also exercised manually via
+``python scripts/purge.py --dry-run``.
 """
 import argparse
 import sys

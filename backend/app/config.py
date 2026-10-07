@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./estimation.db"
     # Was pool_size=25/max_overflow=50 -- with N uvicorn workers that's up to
     # N*75 simultaneous DB connections, which can exceed what a typical
-    # managed Postgres tier (e.g. Render's starter plans) allows well before
+    # small Postgres instance allows well before
     # the app itself is under meaningful load. Start conservative and raise
     # deliberately if connection-pool-timeout errors show up under real
     # traffic, rather than pre-provisioning for a load that hasn't been
@@ -49,12 +49,11 @@ class Settings(BaseSettings):
     CRON_SECRET: str = ""
 
     # Cookie-based auth (see app/rate_limit.py's neighbour app/routers/auth.py).
-    # COOKIE_DOMAIN is the whole ballgame: leave it unset while frontend and
-    # backend are on unrelated domains (vercel.app / onrender.com) and the
-    # browser scopes each cookie to its own exact host, which does NOT work
-    # across sites without SAMESITE=none. Once both are on one parent domain
-    # (app.example.org / api.example.org), set COOKIE_DOMAIN=".example.org"
-    # and SAMESITE can stay "lax".
+    # Production serves the app and API from one origin
+    # (estimation.rhdbridge.com, /api proxied), so the browser scopes each
+    # cookie to that exact host: leave COOKIE_DOMAIN unset and SAMESITE
+    # "lax". Only if the API moves to a sibling subdomain
+    # (app.example.org / api.example.org) set COOKIE_DOMAIN=".example.org".
     COOKIE_DOMAIN: str = ""
     COOKIE_SAMESITE: str = "lax"
     # Cookies require Secure=True in real deployments (SameSite=lax/strict

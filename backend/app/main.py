@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 # Database Migrations (run by the deployment pipeline, not here)
 # ============================================================================
 # We do not run migrations here to avoid race conditions with multiple workers.
-# `alembic upgrade head` runs as the last step of build.sh / the Docker
-# entrypoint, before any worker starts serving requests.
+# `alembic upgrade head` runs in the Docker entrypoint, before any worker
+# starts serving requests.
 
 
 def _ensure_default_organizations(db_session_factory) -> None:
@@ -163,8 +163,9 @@ app.add_middleware(SlowAPIMiddleware)
 # still attached to a response this middleware rejects with 403.
 app.add_middleware(CSRFMiddleware)
 
-# CORS: cannot use "*" when allow_credentials=True.
-# Explicitly list frontend origins and allow Netlify deploy previews via regex.
+# CORS: cannot use "*" when allow_credentials=True. In production the app
+# and API share one origin (the frontend container proxies /api), so this
+# only matters for CORS_ORIGINS set explicitly and for local development.
 
 
 @app.get("/health")
@@ -178,14 +179,6 @@ def _build_cors_origins() -> list[str]:
         origin = raw_origin.strip()
         if origin:
             origins.append(origin)
-
-    # Add explicit frontend origins (Vercel deployment)
-    origins.extend(
-        [
-            "https://rhd-estimation-frontend.vercel.app",
-            "https://rhd-estimation-frontend.vercel.app/",
-        ]
-    )
 
     # For development only
     if settings.APP_ENV == "development":
